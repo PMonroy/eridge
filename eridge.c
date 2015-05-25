@@ -47,11 +47,10 @@ int main(int argc, const char *argv[])
   airArray *mop = airMopNew(); // For memory management
   airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
   airMopAdd(mop, hopt, (airMopper)hestOptFree, airMopAlways);
-  // Often the examples in teem have this command, but here it causes a memory error: 
+  // Often the examples in teem have this command, but here it causes a annoying memory error: 
   // airMopAdd(mop, hopt, (airMopper)hestParseFree, airMopAlways); 
 
-  /* NRRD: info and compute the maxlength */
-
+  /* NRRD: info and compute the maxlength (it is needed to rescaled ridges to original nrrd size) */
   double length[nin->dim];
   double maxlength;
   length[0]=nin->axis[0].spacing * ((double) (nin->axis[0].size-1));
