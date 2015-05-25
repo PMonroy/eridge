@@ -11,24 +11,16 @@ char *info = ("RIDGE SURFACE EXTRACTION");
 
 int main(int argc, const char *argv[]) 
 {
-  const char *me;
-  hestOpt *hopt=NULL;
-  airArray *mop = airMopNew(); // For memory management
-
-
-  Nrrd *nin; // Input nrrd file
-  double strength; // Strength
-  char *outvtk; // File output, vtk format
-
+  int i,j; // Loop index
   limnPolyData *pld;
   gageContext *gctx=NULL;
   gagePerVolume *pvl;
   seekContext *sctx;
 
   double kparm[3];
-  char *err;
 
-  int E;
+
+
 
   FILE *filevtk;
 
@@ -36,6 +28,12 @@ int main(int argc, const char *argv[])
   double alpha, beta[3];
 
   /* COMMAND LINE ARGUMETS */
+  const char *me;  // Executable name
+  double strength; // Strength
+  Nrrd *nin;       // Input nrrd file
+  char *outvtk;    // File output, vtk format
+  hestOpt *hopt=NULL;
+
   me = argv[0];
   hestOptAdd(&hopt, "s", "strength", airTypeDouble, 1, 1, &strength, NULL,
              "strength");  
@@ -46,54 +44,49 @@ int main(int argc, const char *argv[])
              "output vtk file to save ridges into");
   hestParseOrDie(hopt, argc-1, argv+1, NULL, me, info, AIR_TRUE, AIR_TRUE, AIR_TRUE);
 
+  airArray *mop = airMopNew(); // For memory management
+  airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
+  airMopAdd(mop, hopt, (airMopper)hestOptFree, airMopAlways);
+  // Often the examples in teem have this command, but here it causes a memory error: 
+  // airMopAdd(mop, hopt, (airMopper)hestParseFree, airMopAlways); 
 
-  /* TEST NRRD*/
+  /* NRRD: info and compute the maxlength */
+
   double length[nin->dim];
   double maxlength;
-  printf("Nrrd: nin");
-  printf("type=%d\n", nin->type);
-  printf("dim=%u\n", nin->dim);
-  printf("content=%s\n", nin->content);
-  int i;
-  for(i=0; i<nin->dim; i++)
-    {     
-      printf("axis[%d].size=%lu\n",i, nin->axis[i].size);
-      printf("axis[%d].spacing=%lf\n",i, nin->axis[i].spacing);
-      printf("axis[%d].thickness=%lf\n",i, nin->axis[i].thickness);
-      printf("axis[%d].min=%lf\n",i, nin->axis[i].min);
-      printf("axis[%d].max=%lf\n",i, nin->axis[i].max);
-      printf("axis[%d].center=%d\n",i, nin->axis[i].center);
-      printf("axis[%d].kind=%d\n",i, nin->axis[i].kind);
-      printf("axis[%d].label=%s\n",i, nin->axis[i].label);
-      printf("axis[%d].units=%s\n",i, nin->axis[i].units);
-      length[i]=nin->axis[i].spacing * ((double) (nin->axis[i].size-1));
-      printf("length[%d]=%lf\n", i,length[i]);
-    }
-
-  maxlength= length[0];
-
+  length[0]=nin->axis[0].spacing * ((double) (nin->axis[0].size-1));
+  maxlength=length[0]; 
   for(i=1; i<nin->dim; i++)
     {
+      length[i]=nin->axis[i].spacing * ((double) (nin->axis[i].size-1));
       if(maxlength<length[i])
 	maxlength=length[i];
     }
 
-  printf("maxlength=%lf\n", maxlength);
-  airMopDebug(mop);
-  
-  /* INITIALIZATION */
-  pld = limnPolyDataNew();// is not added a comand to the airMop stack to pld 
-
-  sctx = seekContextNew();
-  airMopAdd(mop, sctx, (airMopper)seekContextNix, airMopAlways);
-
+  printf("----------Data Info from input Nrrd----------\n");
+  printf("Space info:\n");
+  printf(" Dim: %u\n",nin->dim);
+  printf("Data info:\n");
+  printf(" Type: %d\n",nin->type);
+  printf(" Content: %s\n",nin->content);  
+  printf("Axis info:\n");
+  for(i=0; i<nin->dim; i++)
+    printf(" size[%d]=%lu\n",i, nin->axis[i].size);
+  for(i=0; i<nin->dim; i++)
+    printf(" spacing[%d]: %f\n",i, nin->axis[i].spacing);
+  for(i=0; i<nin->dim; i++)
+    printf(" min[%d], max[%d]: %f %f\n", i, i, nin->axis[i].min, nin->axis[i].max);
+  for(i=0; i<nin->dim; i++)
+      printf(" length[%d]=%lf\n", i,length[i]);
+  printf(" max. length: %lf\n", maxlength);
+  printf("---------------------------------------------\n");
+  /* GAGE:
+   * it is used to make convolution-based measurements in your input. We will tell it to use a second-order
+   * continuous cubic B-spline as the interpolation kernel and to measure all quantities needed for crease 
+   * extraction, including Hessian eigenvectors and -values
+   */
   gctx = gageContextNew();
   airMopAdd(mop, gctx, (airMopper)gageContextNix, airMopAlways);
-
-  airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
-  airMopDebug(mop);
-
-  /* GAGE */
   ELL_3V_SET(kparm, 1.0, 1.0, 0.0);
   if (!(pvl = gagePerVolumeNew(gctx, nin, gageKindScl))
       || gagePerVolumeAttach(gctx, pvl)
@@ -106,16 +99,20 @@ int main(int argc, const char *argv[])
       || gageQueryItemOn(gctx, pvl, gageSclHessEval2) // Hessian's 3rd eigenvalue=ridge strength
       || gageUpdate(gctx)) 
     {
+      char *err;
       airMopAdd(mop, err = biffGetDone(GAGE), airFree, airMopAlways);
       fprintf(stderr, "ERROR while setting up Gage:\n%s\n", err);
       airMopError(mop); return 1;
     }
 
-  /* EXTRACTION: Set up the extraction itself */
+  /* SEEK: Set up the extraction itself */
+  sctx = seekContextNew();
+  airMopAdd(mop, sctx, (airMopper)seekContextNix, airMopAlways);
+  pld = limnPolyDataNew(); 
+  airMopAdd(mop, pld, (airMopper)limnPolyDataNix, airMopAlways);
 
-  seekVerboseSet(sctx, 10);
-  
-  E = 0;
+  seekVerboseSet(sctx, 10); // set verbose level
+  int E=0;
   if (!E) E |= seekDataSet(sctx, NULL, gctx, 0);
   if (!E) E |= seekItemGradientSet(sctx, gageSclGradVec);
   if (!E) E |= seekItemEigensystemSet(sctx, gageSclHessEval, gageSclHessEvec);
@@ -130,6 +127,7 @@ int main(int argc, const char *argv[])
   if (!E) E |= seekExtract(sctx, pld);
   if (E) 
     {
+      char *err;
       airMopAdd(mop, err = biffGetDone(SEEK), airFree, airMopAlways);
       fprintf(stderr, "ERROR during surface extraction:\n%s\n", err);
       airMopError(mop); return 1;
@@ -141,15 +139,24 @@ int main(int argc, const char *argv[])
   airMopAdd(mop, nval, (airMopper) nrrdNuke, airMopAlways);
   if (1==seekVertexStrength(nval, sctx, pld)) 
     {
+      char *err;
       airMopAdd(mop, err = biffGetDone(SEEK), airFree, airMopAlways);
       fprintf(stderr, "ERROR during surface probing:\n%s\n", err);
-      airMopError(mop); return 1;
+      airMopError(mop); 
+      return 1;
     }
   limnPolyDataClip(pld, nval, sctx->strength);
 
-  airMopOkay(mop);// memory is freed except pld
+  /* Classify the output by primitives */
+  if (limnPolyDataCCFind(pld))
+    {
+      char *err;
+      err = biffGetDone(LIMN);
+      fprintf(stderr, "%s: trouble sorting:\n%s", me, err);
+      free(err);
+    }
 
-  /*  WRITE VTK FILE FROM PLD*/
+  /*  WRITE VTK FILE FROM PLD: Triangle Soup with connectivity in cell atribute*/
   alpha = 0.5 * maxlength; // alpha and beta is needed in order to rescale pld to original nrrd grid
   beta[0] = 0.5 * length[0];
   beta[1] = 0.5 * length[1];
@@ -161,7 +168,6 @@ int main(int argc, const char *argv[])
   fprintf(filevtk,"ASCII\n");
   fprintf(filevtk,"DATASET POLYDATA\n");
   fprintf(filevtk,"POINTS %d float\n", pld->xyzwNum);
-
   for(i=0; i < 4*pld->xyzwNum; i+=4)
     {
       fprintf(filevtk,"%10.7f ", alpha * pld->xyzw[i] + beta[0]);//print x
@@ -175,11 +181,21 @@ int main(int argc, const char *argv[])
       fprintf(filevtk, " %u", pld->indx[i+1]);//print indx
       fprintf(filevtk, " %u\n", pld->indx[i+2]);//print indx
     }
+  fprintf(filevtk,"CELL_DATA %d\n", pld->indxNum/3);
+  fprintf(filevtk,"SCALARS Connectivity unsigned_int\n");
+  fprintf(filevtk,"LOOKUP_TABLE default\n");
+  for(i=0; i < pld->primNum; i++)
+    {
+      for(j=0; j<pld->icnt[i]/3; j++)
+	fprintf(filevtk,"%u\n",pld->icnt[i]/3);
+    }
   fclose(filevtk);
-
-
   
+  /* LOG: Prints some values of PLD (TO DO: give it format and print more things in the command line)*/
+  printf("number of primitives = %u\n", pld->primNum); 
+  printf("number of index = %u\n", pld->indxNum);
+  printf("number of coordenates = %u\n", 4*pld->xyzwNum); 
 
-
+  airMopOkay(mop);
   exit(0);
 }
