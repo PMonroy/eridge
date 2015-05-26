@@ -1,4 +1,6 @@
 /*
+  Author : P. Monroy
+
   TO COMPILE:
   gcc -O2 eridge.c -o eridge -lteem -lm
 
@@ -16,15 +18,8 @@ int main(int argc, const char *argv[])
   gageContext *gctx=NULL;
   gagePerVolume *pvl;
   seekContext *sctx;
-
   double kparm[3];
-
-
-
-
   FILE *filevtk;
-
-
   double alpha, beta[3];
 
   /* COMMAND LINE ARGUMETS */
@@ -79,6 +74,7 @@ int main(int argc, const char *argv[])
       printf(" length[%d]=%lf\n", i,length[i]);
   printf(" max. length: %lf\n", maxlength);
   printf("---------------------------------------------\n");
+
   /* GAGE:
    * it is used to make convolution-based measurements in your input. We will tell it to use a second-order
    * continuous cubic B-spline as the interpolation kernel and to measure all quantities needed for crease 
@@ -86,16 +82,21 @@ int main(int argc, const char *argv[])
    */
   gctx = gageContextNew();
   airMopAdd(mop, gctx, (airMopper)gageContextNix, airMopAlways);
-  ELL_3V_SET(kparm, 1.0, 1.0, 0.0);
+  ELL_3V_SET(kparm, 1.0, 1.0, 0.0); 
+  /* 
+   * kparm[0] = 1.0 (Kernel scaling or scale parameter, in units of samples)
+   * (kparm[1],kparm[2])=(B,C)=(1,0) -> Kernel parameters 
+   */
   if (!(pvl = gagePerVolumeNew(gctx, nin, gageKindScl))
       || gagePerVolumeAttach(gctx, pvl)
-      || gageKernelSet(gctx, gageKernel00, nrrdKernelBCCubic, kparm)
-      || gageKernelSet(gctx, gageKernel11, nrrdKernelBCCubicD, kparm)
-      || gageKernelSet(gctx, gageKernel22, nrrdKernelBCCubicDD, kparm)
-      || gageQueryItemOn(gctx, pvl, gageSclNormal) // Gradient vector, normalized
-      || gageQueryItemOn(gctx, pvl, gageSclHessEval) // Hessian's eigenvalues
-      || gageQueryItemOn(gctx, pvl, gageSclHessEvec) // Hessian's eigenvectors
-      || gageQueryItemOn(gctx, pvl, gageSclHessEval2) // Hessian's 3rd eigenvalue=ridge strength
+      || gageKernelSet(gctx, gageKernel00, nrrdKernelBCCubic, kparm) // Values -> Uniform cubic B-spline (B,C)=(1,0) 
+      || gageKernelSet(gctx, gageKernel11, nrrdKernelBCCubicD, kparm) // First Deriv. -> Uniform cubic B-spline 
+      || gageKernelSet(gctx, gageKernel22, nrrdKernelBCCubicDD, kparm) // Second Deriv. -> Uniform cubic B-spline
+      || gageQueryItemOn(gctx, pvl, gageSclValue) // Measure -> Scalar value 
+      || gageQueryItemOn(gctx, pvl, gageSclNormal) // Measure -> Gradient vector, normalized
+      || gageQueryItemOn(gctx, pvl, gageSclHessEval) // Measures -> Hessian's eigenvalues
+      || gageQueryItemOn(gctx, pvl, gageSclHessEvec) // Measures -> Hessian's eigenvectors
+      || gageQueryItemOn(gctx, pvl, gageSclHessEval2) // Measures -> Hessian's 3rd eigenvalue = Ridge strength
       || gageUpdate(gctx)) 
     {
       char *err;
@@ -167,11 +168,17 @@ int main(int argc, const char *argv[])
   fprintf(filevtk,"ASCII\n");
   fprintf(filevtk,"DATASET POLYDATA\n");
   fprintf(filevtk,"POINTS %d float\n", pld->xyzwNum);
-  for(i=0; i < 4*pld->xyzwNum; i+=4)
+  double *xyz;
+  xyz = AIR_MALLOC(3*pld->xyzwNum, double);// TO DO: include the free command of xyz in airmop 
+  for(i=0, j=0; i < 4*pld->xyzwNum; i+=4, j+=3)
     {
-      fprintf(filevtk,"%10.7f ", alpha * pld->xyzw[i] + beta[0]);//print x
-      fprintf(filevtk,"%10.7f ", alpha * pld->xyzw[i+1] + beta[1]);//print y
-      fprintf(filevtk,"%10.7f\n",alpha * pld->xyzw[i+2] + beta[2]);//print z
+      xyz[j] = alpha * pld->xyzw[i] + beta[0];
+      xyz[j+1] = alpha * pld->xyzw[i+1] + beta[1];
+      xyz[j+2] = alpha * pld->xyzw[i+2] + beta[2];
+
+      fprintf(filevtk,"%10.7f ", xyz[j]);//print x
+      fprintf(filevtk,"%10.7f ", xyz[j+1]);//print y
+      fprintf(filevtk,"%10.7f\n", xyz[j+2]);//print z
     }
   fprintf(filevtk,"POLYGONS %d %d\n", pld->indxNum/3, (pld->indxNum/3)*4);
   for(i=0; i < pld->indxNum; i+=3)
@@ -188,6 +195,43 @@ int main(int argc, const char *argv[])
       for(j=0; j<pld->icnt[i]/3; j++)
 	fprintf(filevtk,"%u\n",pld->icnt[i]/3);
     }
+  
+  fprintf(filevtk,"POINT_DATA %d\n", pld->xyzwNum);
+  fprintf(filevtk,"SCALARS Scalar_Value float\n");
+  fprintf(filevtk,"LOOKUP_TABLE default\n");
+
+  const double *val;
+  double xi,yi,zi;
+
+  val = gageAnswerPointer(gctx, pvl, gageSclValue);
+  for(i=0; i < 3*pld->xyzwNum; i+=3)
+    {
+      xi = (xyz[i] - nin->axis[0].min)/nin->axis[0].spacing;
+      if (xi < 0.0)
+	xi = (double) 0;
+      else if (xi > (double) (nin->axis[0].size-1))
+	xi = (double) (nin->axis[0].size-1);
+
+      yi = (xyz[i+1] - nin->axis[1].min)/nin->axis[1].spacing;
+      if (yi < 0.0)
+	yi = (double) 0;
+      else if (yi > (double) (nin->axis[1].size-1))
+	yi = (double) (nin->axis[1].size-1);
+
+      zi = (xyz[i+2] - nin->axis[2].min)/nin->axis[2].spacing;        
+      if (zi < 0.0)
+	zi = (double) 0;
+      else if (zi > (double) (nin->axis[2].size-1))
+	zi = (double) (nin->axis[2].size-1);
+
+      if (gageProbe(gctx, xi, yi, zi)) 
+	{
+	  fprintf(stderr, "%s: trouble:\n(%d) %s\n", me, gctx->errNum, gctx->errStr);
+	  airMopError(mop); 
+	  return 1;
+	}
+      fprintf(filevtk,"%g\n",*val);
+    }
   fclose(filevtk);
   
   /* LOG: Prints some values of PLD (TO DO: give it format and print more things in the command line)*/
@@ -195,6 +239,7 @@ int main(int argc, const char *argv[])
   printf("number of index = %u\n", pld->indxNum);
   printf("number of coordenates = %u\n", 4*pld->xyzwNum); 
 
+  airFree(xyz);
   airMopOkay(mop);
   exit(0);
 }
