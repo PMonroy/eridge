@@ -1,7 +1,7 @@
 eridge
 mkNrrd
 *~
-out.vtk
+*.vtk
 Vigo_FTLE.pdf
 a.out
 test_value.c

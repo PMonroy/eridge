@@ -6,7 +6,7 @@
  *
  */
 
-#include <teem/seek.h
+#include <teem/seek.h>
 #include <teem/air.h>
 
 char *info = ("RIDGE SURFACE EXTRACTION");
@@ -178,9 +178,9 @@ int main(int argc, const char *argv[])
   int j; // Loop index
   for(i=0, j=0; i < 4*pld->xyzwNum; i+=4, j+=3)
     {
-      xyz[j] = alpha * pld->xyzw[i] + beta[0];
-      xyz[j+1] = alpha * pld->xyzw[i+1] + beta[1];
-      xyz[j+2] = alpha * pld->xyzw[i+2] + beta[2];
+      xyz[j] = alpha * pld->xyzw[i] + beta[0] + nin->axis[0].min;
+      xyz[j+1] = alpha * pld->xyzw[i+1] + beta[1] + nin->axis[1].min;
+      xyz[j+2] = alpha * pld->xyzw[i+2] + beta[2] +  nin->axis[2].min;
 
       fprintf(filevtk,"%10.7f ", xyz[j]);//print x
       fprintf(filevtk,"%10.7f ", xyz[j+1]);//print y
