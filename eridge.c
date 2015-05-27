@@ -1,27 +1,18 @@
-/*
-  Author : P. Monroy
+/* 
+ * eridge : This code extract ridges from FTLE or FSLE 3D data (in nrrd file) 
+ *          using teem lib (http://teem.sourceforge.net/)
+ * Author : P. Monroy
+ * Organization: IFISC
+ *
+ */
 
-  TO COMPILE:
-  gcc -O2 eridge.c -o eridge -lteem -lm
-
-*/
-
-#include <teem/seek.h>
+#include <teem/seek.h
 #include <teem/air.h>
 
 char *info = ("RIDGE SURFACE EXTRACTION");
 
 int main(int argc, const char *argv[]) 
 {
-  int i,j; // Loop index
-  limnPolyData *pld;
-  gageContext *gctx=NULL;
-  gagePerVolume *pvl;
-  seekContext *sctx;
-  double kparm[3];
-  FILE *filevtk;
-  double alpha, beta[3];
-
   /* COMMAND LINE ARGUMETS */
   const char *me;  // Executable name
   double strength; // Strength
@@ -50,6 +41,7 @@ int main(int argc, const char *argv[])
   double maxlength;
   length[0]=nin->axis[0].spacing * ((double) (nin->axis[0].size-1));
   maxlength=length[0]; 
+  int i; // Loop index
   for(i=1; i<nin->dim; i++)
     {
       length[i]=nin->axis[i].spacing * ((double) (nin->axis[i].size-1));
@@ -80,6 +72,9 @@ int main(int argc, const char *argv[])
    * continuous cubic B-spline as the interpolation kernel and to measure all quantities needed for crease 
    * extraction, including Hessian eigenvectors and -values
    */
+  gageContext *gctx=NULL;
+  gagePerVolume *pvl;
+  double kparm[3];
   gctx = gageContextNew();
   airMopAdd(mop, gctx, (airMopper)gageContextNix, airMopAlways);
   ELL_3V_SET(kparm, 1.0, 1.0, 0.0); 
@@ -87,6 +82,7 @@ int main(int argc, const char *argv[])
    * kparm[0] = 1.0 (Kernel scaling or scale parameter, in units of samples)
    * (kparm[1],kparm[2])=(B,C)=(1,0) -> Kernel parameters 
    */
+
   if (!(pvl = gagePerVolumeNew(gctx, nin, gageKindScl))
       || gagePerVolumeAttach(gctx, pvl)
       || gageKernelSet(gctx, gageKernel00, nrrdKernelBCCubic, kparm) // Values -> Uniform cubic B-spline (B,C)=(1,0) 
@@ -106,8 +102,12 @@ int main(int argc, const char *argv[])
     }
 
   /* SEEK: Set up the extraction itself */
+
+  seekContext *sctx;
   sctx = seekContextNew();
   airMopAdd(mop, sctx, (airMopper)seekContextNix, airMopAlways);
+
+  limnPolyData *pld;
   pld = limnPolyDataNew(); 
   airMopAdd(mop, pld, (airMopper)limnPolyDataNix, airMopAlways);
 
@@ -157,19 +157,25 @@ int main(int argc, const char *argv[])
     }
 
   /*  WRITE VTK FILE FROM PLD: Triangle Soup with connectivity in cell atribute*/
-  alpha = 0.5 * maxlength; // alpha and beta is needed in order to rescale pld to original nrrd grid
+
+  double alpha, beta[3]; // alpha and beta is needed in order to rescale pld to original nrrd grid
+  alpha = 0.5 * maxlength; 
   beta[0] = 0.5 * length[0];
   beta[1] = 0.5 * length[1];
   beta[2] = 0.5 * length[2];
 
+  FILE *filevtk;
   filevtk = fopen(outvtk,"w");
   fprintf(filevtk,"# vtk DataFile Version 3.0\n");
   fprintf(filevtk,"vtk output\n");
   fprintf(filevtk,"ASCII\n");
   fprintf(filevtk,"DATASET POLYDATA\n");
   fprintf(filevtk,"POINTS %d float\n", pld->xyzwNum);
+
   double *xyz;
   xyz = AIR_MALLOC(3*pld->xyzwNum, double);// TO DO: include the free command of xyz in airmop 
+
+  int j; // Loop index
   for(i=0, j=0; i < 4*pld->xyzwNum; i+=4, j+=3)
     {
       xyz[j] = alpha * pld->xyzw[i] + beta[0];
@@ -235,11 +241,14 @@ int main(int argc, const char *argv[])
   fclose(filevtk);
   
   /* LOG: Prints some values of PLD (TO DO: give it format and print more things in the command line)*/
-  printf("number of primitives = %u\n", pld->primNum); 
-  printf("number of index = %u\n", pld->indxNum);
-  printf("number of coordenates = %u\n", 4*pld->xyzwNum); 
+  printf("----------Data Info from output *pld----------\n");
+  printf("Number of points = %u\n", pld->xyzwNum); 
+  printf("Number of triangles = %u\n", pld->indxNum/3);
+  printf("Number of primitives = %u\n", pld->primNum); 
+  printf("----------------------------------------------\n");
 
-  airFree(xyz);
+  /* Freeing memory  */
+  airFree(xyz); // TO DO: include the free command of xyz in airmop 
   airMopOkay(mop);
   exit(0);
 }

@@ -1,6 +1,15 @@
+/* 
+ * mkNrrd : This code save in nrrd file data from FTLE or FSLE 3D ascii file
+ *          using teem lib (http://teem.sourceforge.net/)
+ * Author : P. Monroy
+ * Organization: IFISC
+ *
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <teem/nrrd.h>
+#include <teem/air.h>
 
 char *info = ("generate a nrrd file from a data in ASCII format.");
 
@@ -12,7 +21,7 @@ int main(int argc, const char *argv[])
   hestOpt *hopt;
   hestParm *hparm;
   airArray *mop;
-  double min[3], max[3], spacing[3], x, y, z, *data;
+  double min[3], max[3], spacing[3], *data;
   Nrrd *nout;
   FILE *finput;
 
@@ -76,13 +85,10 @@ int main(int argc, const char *argv[])
    */
   for (zi=0; zi<size[2]; zi++) 
     {
-      z = AIR_AFFINE(0, zi, size[2]-1, min[2], max[2]);
       for (yi=0; yi<size[1]; yi++) 
 	{
-	  y = AIR_AFFINE(0, yi, size[1]-1, min[1], max[1]);
 	  for (xi=0; xi<size[0]; xi++) 
 	    {
-	      x = AIR_AFFINE(0, xi, size[0]-1, min[0], max[0]);
 	      if(fscanf(finput,"%lf", data)==EOF)
 		{
 		  fprintf(stderr, "%s: The file %s has not enough data.\n", me, in);

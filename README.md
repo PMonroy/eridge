@@ -1,1 +1,3 @@
 # eridge
+to compile: make
+
