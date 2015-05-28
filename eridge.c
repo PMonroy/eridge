@@ -16,13 +16,16 @@ int main(int argc, const char *argv[])
   /* COMMAND LINE ARGUMETS */
   const char *me;  // Executable name
   double strength; // Strength
+  double scaling[3]; // Scaling, amount by which to up/down-sample on each spatial axis
   Nrrd *nin;       // Input nrrd file
   char *outvtk;    // File output, vtk format
   hestOpt *hopt=NULL;
 
   me = argv[0];
   hestOptAdd(&hopt, "s", "strength", airTypeDouble, 1, 1, &strength, NULL,
-             "strength");  
+             "strength"); 
+  hestOptAdd(&hopt, "c", "scaling", airTypeDouble, 3, 3, scaling, "1 1 1",
+             "amount by which to up/down-sample on each spatial axis");
   hestOptAdd(&hopt, "i", "input nrrd", airTypeOther, 1, 1, &nin, NULL, 
 	     "input nrrd file to analyze", 
 	     NULL, NULL, nrrdHestNrrd);
@@ -113,6 +116,10 @@ int main(int argc, const char *argv[])
 
   seekVerboseSet(sctx, 10); // set verbose level
   int E=0;
+  size_t samples[3];
+  ELL_3V_SET(samples,
+           2*nin->axis[0].size, 2*nin->axis[1].size, 2*nin->axis[2].size);
+  if (!E) E |= seekSamplesSet(sctx, samples);
   if (!E) E |= seekDataSet(sctx, NULL, gctx, 0);
   if (!E) E |= seekItemGradientSet(sctx, gageSclGradVec);
   if (!E) E |= seekItemEigensystemSet(sctx, gageSclHessEval, gageSclHessEvec);
